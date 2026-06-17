@@ -30,7 +30,7 @@ fi
 
 set -euo pipefail
 
-SOCKSCTL_INSTALLER_REV="2026-06-17h"
+SOCKSCTL_INSTALLER_REV="2026-06-17i"
 INSTALL_BIN="/usr/local/bin/socksctl"
 INSTALL_LIB="/usr/local/lib/socksctl"
 SCRIPT_DIR=""

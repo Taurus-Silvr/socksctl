@@ -5,41 +5,34 @@ Persistent SSH SOCKS5 tunnel in one command.
 
 ## Быстрая установка
 
-**Одна команда (один архив с github.com, без raw):**
+### Одна команда (рекомендуется — только github.com, без raw)
+
+```bash
+bash -c 'd=$(mktemp -d); curl -fsSL --connect-timeout 30 --max-time 300 --retry 5 https://github.com/Taurus-Silvr/socksctl/archive/refs/heads/main.tar.gz | tar xz -C "$d" --strip-components=1; exec bash "$d/install.sh"'
+```
+
+Root — без sudo. Одно скачивание архива (~13 KB), дальше мастер установки.
+
+### Если сеть нестабильная (скачать в файл, потом распаковать)
+
+```bash
+curl -fsSL --connect-timeout 30 --max-time 300 --retry 5 -o /tmp/socksctl.tgz https://github.com/Taurus-Silvr/socksctl/archive/refs/heads/main.tar.gz && mkdir -p /tmp/socksctl-src && tar xzf /tmp/socksctl.tgz -C /tmp/socksctl-src --strip-components=1 && bash /tmp/socksctl-src/install.sh
+```
+
+### Через get.sh (может не работать, если raw.githubusercontent.com заблокирован)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/get.sh | sh
 ```
 
-Без sudo, если вы уже root.
+> **Почему «зависает» `curl ... | sh`?**  
+> Первая загрузка идёт с `raw.githubusercontent.com`. В РФ он часто таймаутит по SSL — скрипт не доходит до `sh`, вывода нет.  
+> **Не используйте:** `curl ... | sudo bash` — sudo ломает pipe.
 
-С sudo:
-
-```bash
-sudo sh -c 'curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/get.sh | sh'
-```
-
-**Альтернатива (скачать архив вручную):**
+С sudo (не root):
 
 ```bash
-curl -fsSL https://github.com/Taurus-Silvr/socksctl/archive/refs/heads/main.tar.gz | tar xz
-cd socksctl-main && bash install.sh
-```
-
-> **Не работает:** `curl ... | sudo bash` — sudo ломает pipe.
-
-Если «зависло» без вывода — GitHub может быть недоступен. Проверьте:
-
-```bash
-curl -I --connect-timeout 10 https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh
-```
-
-**Альтернатива (если curl к GitHub не идёт):**
-
-```bash
-git clone https://github.com/Taurus-Silvr/socksctl.git
-cd socksctl
-sudo bash install.sh
+sudo bash -c 'd=$(mktemp -d); curl -fsSL --connect-timeout 30 --max-time 300 --retry 5 https://github.com/Taurus-Silvr/socksctl/archive/refs/heads/main.tar.gz | tar xz -C "$d" --strip-components=1; exec bash "$d/install.sh"'
 ```
 
 Введите **IP внешнего VPS** и **пароль root** (один раз).  
