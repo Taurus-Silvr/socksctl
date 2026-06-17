@@ -1,0 +1,14 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+
+[*.{sh,bash}]
+end_of_line = lf
+
+[socksctl]
+end_of_line = lf
+
+[install.sh]
+end_of_line = lf

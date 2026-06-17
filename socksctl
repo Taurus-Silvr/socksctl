@@ -1,0 +1,462 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOCKSCTL_VERSION="1.0.0"
+SOCKSCTL_LIB_DIR=""
+
+socksctl_resolve_paths() {
+    local script_path script_dir
+    script_path="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+    script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+
+    if [[ -d "${script_dir}/lib" ]]; then
+        SOCKSCTL_LIB_DIR="${script_dir}/lib"
+    elif [[ -d "/usr/local/lib/socksctl" ]]; then
+        SOCKSCTL_LIB_DIR="/usr/local/lib/socksctl"
+    else
+        echo "socksctl: не найдена директория lib/" >&2
+        exit 1
+    fi
+}
+
+socksctl_load_libs() {
+    local lib
+    for lib in ui os config deps ssh systemd check; do
+        # shellcheck disable=SC1090
+        source "${SOCKSCTL_LIB_DIR}/${lib}.sh"
+    done
+}
+
+socksctl_usage() {
+    cat <<EOF
+socksctl v${SOCKSCTL_VERSION} — SSH SOCKS5 tunnel manager
+
+Usage:
+  sudo socksctl install [options]
+  sudo socksctl status
+  sudo socksctl restart
+  sudo socksctl logs [--lines N]
+  sudo socksctl doctor
+  sudo socksctl uninstall
+
+Install options:
+  --host <host>           External VPS host/IP
+  --ssh-port <port>       SSH port (default: 22)
+  --user <user>           SSH user (default: root)
+  --listen-host <host>    SOCKS listen address (default: 127.0.0.1)
+  --listen-port <port>    SOCKS port (default: 1080)
+  --key-path <path>       SSH private key path
+  --service-name <name>   systemd service name
+  --advanced              Extended interactive setup
+  --yes                   Skip confirmation prompts
+  --no-color              Disable colored output
+  -h, --help              Show help
+EOF
+}
+
+cmd_install_parse_args() {
+    SSH_HOST=""
+    SSH_PORT="22"
+    SSH_USER="root"
+    LISTEN_HOST="127.0.0.1"
+    LISTEN_PORT="1080"
+    KEY_PATH="/root/.ssh/socksctl_key"
+    SERVICE_NAME="socksctl-tunnel"
+    SOCKSCTL_YES=0
+    INSTALL_ADVANCED=0
+    UI_NO_COLOR=0
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)
+                SSH_HOST="$2"
+                shift 2
+                ;;
+            --ssh-port)
+                SSH_PORT="$2"
+                shift 2
+                ;;
+            --user)
+                SSH_USER="$2"
+                shift 2
+                ;;
+            --listen-host)
+                LISTEN_HOST="$2"
+                shift 2
+                ;;
+            --listen-port)
+                LISTEN_PORT="$2"
+                shift 2
+                ;;
+            --key-path)
+                KEY_PATH="$2"
+                shift 2
+                ;;
+            --service-name)
+                SERVICE_NAME="$2"
+                shift 2
+                ;;
+            --advanced)
+                INSTALL_ADVANCED=1
+                shift
+                ;;
+            --yes|-y)
+                SOCKSCTL_YES=1
+                shift
+                ;;
+            --no-color)
+                UI_NO_COLOR=1
+                shift
+                ;;
+            -h|--help)
+                socksctl_usage
+                exit 0
+                ;;
+            *)
+                ui_die "Неизвестный аргумент: $1" 1
+                ;;
+        esac
+    done
+}
+
+cmd_install_validate_host() {
+    if [[ -z "$SSH_HOST" ]]; then
+        ui_die "Не указан адрес внешнего сервера." 1
+    fi
+}
+
+cmd_install_warn_open_listen() {
+    if [[ "$LISTEN_HOST" == "0.0.0.0" ]]; then
+        echo
+        ui_warn "ВНИМАНИЕ! SOCKS5-прокси будет слушать на всех интерфейсах."
+        ui_warn "Без firewall им смогут пользоваться посторонние."
+        echo
+        if ! ui_confirm "Продолжить?" "n"; then
+            ui_die "Установка отменена." 1
+        fi
+    fi
+}
+
+cmd_install_show_summary() {
+    local summary=(
+        "Внешний сервер:   ${SSH_USER}@${SSH_HOST}:${SSH_PORT}"
+        "Локальный SOCKS:  socks5h://${LISTEN_HOST}:${LISTEN_PORT}"
+        "SSH-ключ:         ${KEY_PATH}"
+        "Systemd-сервис:   ${SERVICE_NAME}"
+    )
+    ui_summary_box summary
+}
+
+cmd_install_collect_input() {
+    ui_print_logo
+    ui_header "socksctl — настройка SSH SOCKS5-туннеля"
+
+    ui_info "Введите IP или домен внешнего VPS."
+    ui_info "SSH-пользователь: root, порт: 22, SOCKS5: 127.0.0.1:1080"
+    ui_info "Пароль потребуется один раз на шаге добавления SSH-ключа."
+    echo
+
+    if [[ -z "$SSH_HOST" ]]; then
+        SSH_HOST="$(ui_prompt "Адрес внешнего сервера")"
+    fi
+
+    if [[ "$INSTALL_ADVANCED" == "1" ]]; then
+        local port_input
+        port_input="$(ui_prompt "SSH-порт" "$SSH_PORT")"
+        SSH_PORT="${port_input:-$SSH_PORT}"
+
+        SSH_USER="$(ui_prompt "SSH-пользователь" "$SSH_USER")"
+
+        echo
+        echo "  Где слушать SOCKS5-прокси?"
+        echo "    1) Только локально: 127.0.0.1"
+        echo "    2) На всех интерфейсах: 0.0.0.0"
+        echo "    3) Свой адрес"
+        echo
+        local listen_choice custom_host
+        listen_choice="$(ui_prompt "Выбор" "1")"
+        case "$listen_choice" in
+            1) LISTEN_HOST="127.0.0.1" ;;
+            2) LISTEN_HOST="0.0.0.0" ;;
+            3)
+                custom_host="$(ui_prompt "Адрес прослушивания" "127.0.0.1")"
+                LISTEN_HOST="${custom_host:-127.0.0.1}"
+                ;;
+            *) LISTEN_HOST="127.0.0.1" ;;
+        esac
+
+        LISTEN_PORT="$(ui_prompt "Локальный порт SOCKS5" "$LISTEN_PORT")"
+    fi
+
+    cmd_install_validate_host
+}
+
+cmd_install_confirm() {
+    cmd_install_warn_open_listen
+    cmd_install_show_summary
+
+    if ! ui_confirm "Начать установку?" "y"; then
+        ui_die "Установка отменена." 0
+    fi
+}
+
+cmd_install_existing_menu() {
+    ui_warn "socksctl уже настроен."
+    echo
+    echo "  Что сделать?"
+    echo "    1) Показать статус"
+    echo "    2) Переустановить с новыми настройками"
+    echo "    3) Перезапустить сервис"
+    echo "    4) Выйти"
+    echo
+
+    local choice
+    choice="$(ui_prompt "Выбор" "1")"
+
+    case "$choice" in
+        1)
+            cmd_status
+            exit 0
+            ;;
+        2)
+            return 0
+            ;;
+        3)
+            cmd_restart
+            exit 0
+            ;;
+        4|*)
+            exit 0
+            ;;
+    esac
+}
+
+cmd_install_run() {
+    UI_CURRENT_STEP=0
+
+    echo
+    ui_bold
+    echo "  Установка (8 шагов):"
+    ui_reset
+    echo
+
+    ui_step_begin "Проверка системы"
+    os_check_supported
+
+    ui_step_begin "Установка зависимостей"
+    if ! deps_install; then
+        exit 1
+    fi
+
+    ui_step_begin "Настройка SSH-директории"
+    ssh_prepare_dir
+
+    ui_step_begin "Генерация SSH-ключа"
+    ssh_handle_existing_key
+    if ! ssh_generate_key; then
+        exit 1
+    fi
+
+    ui_step_begin "Добавление ключа на внешний сервер"
+    if ! ssh_add_known_host; then
+        exit 1
+    fi
+    if ssh_verify_connection 1; then
+        ui_step_ok "SSH-подключение по ключу уже работает"
+    else
+        if ! ssh_copy_id_to_remote; then
+            exit 1
+        fi
+        if ! ssh_verify_connection; then
+            exit 1
+        fi
+    fi
+
+    ui_step_begin "Создание systemd-сервиса"
+    config_save
+    systemd_write_unit
+
+    ui_step_begin "Запуск туннеля"
+    if ! systemd_enable_start; then
+        exit 1
+    fi
+
+    if ! check_verify_install; then
+        exit 1
+    fi
+
+    ui_final_success "$LISTEN_HOST" "$LISTEN_PORT"
+}
+
+cmd_install() {
+    os_require_root install
+    ui_init
+    cmd_install_parse_args "$@"
+
+    if config_exists && [[ "${SOCKSCTL_FORCE_INSTALL:-0}" != "1" ]]; then
+        config_load
+        cmd_install_existing_menu
+    fi
+
+    if [[ -z "$SSH_HOST" ]]; then
+        cmd_install_collect_input
+        cmd_install_confirm
+    elif [[ "${SOCKSCTL_YES:-0}" == "1" ]]; then
+        cmd_install_validate_host
+        cmd_install_warn_open_listen
+    else
+        cmd_install_collect_input
+        cmd_install_confirm
+    fi
+
+    if config_exists; then
+        config_load
+        systemd_stop_disable 2>/dev/null || true
+    fi
+
+    cmd_install_run
+}
+
+cmd_status() {
+    os_require_root status
+    ui_init
+    ui_header "socksctl status"
+
+    if ! config_exists; then
+        ui_err "socksctl ещё не установлен. Запустите: sudo socksctl install"
+        exit 1
+    fi
+
+    systemd_show_status
+}
+
+cmd_restart() {
+    os_require_root restart
+    ui_init
+    ui_header "socksctl restart"
+
+    if ! config_exists; then
+        ui_err "socksctl ещё не установлен."
+        exit 1
+    fi
+
+    ui_spinner_start "Перезапускаю сервис"
+    if systemd_restart_service; then
+        ui_spinner_stop 1 "Сервис перезапущен и активен"
+    else
+        ui_spinner_stop 0 "Не удалось перезапустить сервис"
+        systemd_show_failure_logs
+        exit 1
+    fi
+
+    if check_socks_curl; then
+        ui_ok "SOCKS5 работает, внешний IP: ${CHECK_EXTERNAL_IP}"
+    else
+        ui_warn "Сервис запущен, но SOCKS5-проверка не прошла"
+    fi
+}
+
+cmd_logs() {
+    os_require_root logs
+    local lines=100
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --lines)
+                lines="$2"
+                shift 2
+                ;;
+            *)
+                ui_die "Неизвестный аргумент: $1" 1
+                ;;
+        esac
+    done
+
+    if ! config_exists; then
+        echo "socksctl ещё не установлен." >&2
+        exit 1
+    fi
+
+    config_load
+    exec journalctl -u "$SERVICE_NAME" -n "$lines" -f --no-pager
+}
+
+cmd_doctor() {
+    os_require_root doctor
+    ui_init
+
+    if ! config_exists; then
+        ui_header "socksctl doctor"
+        ui_err "socksctl ещё не установлен. Запустите: sudo socksctl install"
+        exit 1
+    fi
+
+    check_run_doctor
+}
+
+cmd_uninstall() {
+    os_require_root uninstall
+    ui_init
+    ui_header "socksctl uninstall"
+
+    if ! config_exists; then
+        ui_warn "socksctl не установлен или уже удалён."
+        exit 0
+    fi
+
+    config_load
+
+    ui_info "Останавливаю и удаляю systemd-сервис..."
+    systemd_remove_unit
+    ui_ok "Сервис удалён"
+
+    if ui_confirm "Удалить SSH-ключ ($KEY_PATH)?" "n"; then
+        rm -f "$KEY_PATH" "${KEY_PATH}.pub"
+        ui_ok "SSH-ключ удалён"
+    fi
+
+    if ui_confirm "Удалить конфиг ($SOCKSCTL_CONFIG_FILE)?" "y"; then
+        rm -f "$SOCKSCTL_CONFIG_FILE"
+        ui_ok "Конфиг удалён"
+    fi
+
+    ui_ok "socksctl удалён"
+}
+
+main() {
+    local cmd="${1:-}"
+    shift || true
+
+    socksctl_resolve_paths
+    socksctl_load_libs
+
+    case "$cmd" in
+        install)
+            cmd_install "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        restart)
+            cmd_restart "$@"
+            ;;
+        logs)
+            cmd_logs "$@"
+            ;;
+        doctor)
+            cmd_doctor "$@"
+            ;;
+        uninstall)
+            cmd_uninstall "$@"
+            ;;
+        -h|--help|help|"")
+            socksctl_usage
+            ;;
+        *)
+            ui_init
+            ui_die "Неизвестная команда: $cmd. Запустите: socksctl --help" 1
+            ;;
+    esac
+}
+
+main "$@"
