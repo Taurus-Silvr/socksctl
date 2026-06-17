@@ -126,6 +126,127 @@ sudo socksctl doctor
 | `sudo socksctl doctor` | Full diagnostics |
 | `sudo socksctl uninstall` | Remove service and config |
 
+### Defaults
+
+| Setting | Default |
+|---------|---------|
+| VPS user / SSH port | `root` / `22` |
+| Local SOCKS5 | `127.0.0.1:1080` → `socks5h://127.0.0.1:1080` |
+| SSH key | `/root/.ssh/socksctl_key` |
+| systemd service | `socksctl-tunnel` |
+| Config file | `/etc/socksctl/config.env` |
+
+> `status`, `restart`, `logs`, and `doctor` always use **the last installed** tunnel from `config.env`. One config file — one “primary” tunnel for the CLI.
+
+### Install flags
+
+All flags work with `sudo socksctl install`:
+
+| Flag | Description | Example |
+|------|-------------|---------|
+| `--host <IP>` | External VPS IP or domain | `--host 185.242.247.214` |
+| `--ssh-port <port>` | SSH port on VPS | `--ssh-port 2222` |
+| `--user <user>` | SSH user | `--user ubuntu` |
+| `--listen-host <addr>` | Where SOCKS5 listens locally | `--listen-host 0.0.0.0` |
+| `--listen-port <port>` | Local SOCKS5 port | `--listen-port 1081` |
+| `--key-path <path>` | SSH private key file | `--key-path /root/.ssh/socksctl_key_2` |
+| `--service-name <name>` | systemd unit name | `--service-name socksctl-tunnel-2` |
+| `--advanced` | Extra prompts: SSH port, user, listen address, port | `--advanced` |
+| `--yes` / `-y` | Skip confirmation (use with `--host`) | `--yes` |
+| `--no-color` | Plain output | `--no-color` |
+
+Show full help anytime:
+
+```bash
+sudo socksctl install --help
+```
+
+### Common tasks
+
+#### Specify VPS IP without typing it in the wizard
+
+```bash
+sudo socksctl install --host 185.242.247.214 --yes
+```
+
+You still enter the VPS password once when the SSH key is copied (unless the key already works).
+
+#### Change VPS IP (replace current tunnel)
+
+```bash
+sudo socksctl install --host NEW.VPS.IP --yes
+```
+
+Or interactively: `sudo socksctl install` → choose **2) Reinstall with new settings**.
+
+#### Change local SOCKS port
+
+```bash
+sudo socksctl install --host 185.242.247.214 --listen-port 1081 --yes
+```
+
+Use the new address in apps: `socks5h://127.0.0.1:1081`.
+
+#### Non-default SSH (custom port or user)
+
+```bash
+sudo socksctl install \
+  --host 185.242.247.214 \
+  --ssh-port 2222 \
+  --user ubuntu \
+  --yes
+```
+
+Or run the extended wizard:
+
+```bash
+sudo socksctl install --advanced
+```
+
+#### SOCKS5 for other machines on your LAN
+
+Listen on all interfaces (firewall recommended):
+
+```bash
+sudo socksctl install --host 185.242.247.214 --listen-host 0.0.0.0 --yes
+```
+
+Other devices use `socks5h://YOUR_SERVER_IP:1080`.
+
+#### Second tunnel (another VPS, another port)
+
+You can run **two tunnels at once**, but each needs its own **port**, **systemd service name**, and **SSH key**. The CLI tracks only the last install in `config.env`.
+
+```bash
+# Tunnel 1 is already on 127.0.0.1:1080 (socksctl-tunnel)
+
+# Add tunnel 2 → second VPS on port 1081
+SOCKSCTL_FORCE_INSTALL=1 sudo socksctl install \
+  --host 203.0.113.50 \
+  --listen-port 1081 \
+  --service-name socksctl-tunnel-2 \
+  --key-path /root/.ssh/socksctl_key_2 \
+  --yes
+```
+
+`SOCKSCTL_FORCE_INSTALL=1` skips the “already configured” menu.
+
+During install, the **previous** service from `config.env` is stopped. The old unit file remains — start both if you need them:
+
+```bash
+sudo systemctl enable --now socksctl-tunnel      # first tunnel
+sudo systemctl enable --now socksctl-tunnel-2    # second tunnel
+```
+
+Check and use the second tunnel:
+
+```bash
+sudo systemctl status socksctl-tunnel-2
+curl --socks5-hostname 127.0.0.1:1081 https://ifconfig.me
+```
+
+`socksctl status` shows only the **last** tunnel. For others, use `systemctl`.
+
 ### App examples
 
 **curl:**
@@ -270,6 +391,127 @@ sudo socksctl doctor
 | `sudo socksctl logs` | Логи в реальном времени |
 | `sudo socksctl doctor` | Полная диагностика |
 | `sudo socksctl uninstall` | Удаление сервиса и конфига |
+
+### Значения по умолчанию
+
+| Параметр | По умолчанию |
+|----------|--------------|
+| Пользователь / SSH-порт VPS | `root` / `22` |
+| Локальный SOCKS5 | `127.0.0.1:1080` → `socks5h://127.0.0.1:1080` |
+| SSH-ключ | `/root/.ssh/socksctl_key` |
+| systemd-сервис | `socksctl-tunnel` |
+| Файл конфига | `/etc/socksctl/config.env` |
+
+> Команды `status`, `restart`, `logs` и `doctor` работают с **последним установленным** туннелем из `config.env`. Один конфиг — один «основной» туннель для CLI.
+
+### Флаги установки
+
+Все флаги передаются в `sudo socksctl install`:
+
+| Флаг | Описание | Пример |
+|------|----------|--------|
+| `--host <IP>` | IP или домен внешнего VPS | `--host 185.242.247.214` |
+| `--ssh-port <port>` | SSH-порт на VPS | `--ssh-port 2222` |
+| `--user <user>` | SSH-пользователь | `--user ubuntu` |
+| `--listen-host <addr>` | Где слушает SOCKS5 локально | `--listen-host 0.0.0.0` |
+| `--listen-port <port>` | Локальный порт SOCKS5 | `--listen-port 1081` |
+| `--key-path <path>` | Файл SSH-ключа | `--key-path /root/.ssh/socksctl_key_2` |
+| `--service-name <name>` | Имя systemd-сервиса | `--service-name socksctl-tunnel-2` |
+| `--advanced` | Доп. вопросы: SSH-порт, user, адрес и порт SOCKS | `--advanced` |
+| `--yes` / `-y` | Без подтверждения (вместе с `--host`) | `--yes` |
+| `--no-color` | Вывод без цветов | `--no-color` |
+
+Справка:
+
+```bash
+sudo socksctl install --help
+```
+
+### Типовые задачи
+
+#### Задать IP VPS сразу, без ввода в мастере
+
+```bash
+sudo socksctl install --host 185.242.247.214 --yes
+```
+
+Пароль VPS всё равно спросят один раз при копировании SSH-ключа (если ключ ещё не добавлен).
+
+#### Сменить IP VPS (заменить текущий туннель)
+
+```bash
+sudo socksctl install --host NEW.VPS.IP --yes
+```
+
+Или интерактивно: `sudo socksctl install` → пункт **2) Переустановить с новыми настройками**.
+
+#### Другой локальный порт SOCKS
+
+```bash
+sudo socksctl install --host 185.242.247.214 --listen-port 1081 --yes
+```
+
+В приложениях: `socks5h://127.0.0.1:1081`.
+
+#### Нестандартный SSH (другой порт или пользователь)
+
+```bash
+sudo socksctl install \
+  --host 185.242.247.214 \
+  --ssh-port 2222 \
+  --user ubuntu \
+  --yes
+```
+
+Или расширенный мастер:
+
+```bash
+sudo socksctl install --advanced
+```
+
+#### SOCKS5 для других машин в локальной сети
+
+Слушать на всех интерфейсах (желательно настроить firewall):
+
+```bash
+sudo socksctl install --host 185.242.247.214 --listen-host 0.0.0.0 --yes
+```
+
+С других устройств: `socks5h://IP_ВАШЕГО_СЕРВЕРА:1080`.
+
+#### Второй туннель (другой VPS, другой порт)
+
+**Два туннеля одновременно** возможны, но у каждого свой **порт**, **имя systemd-сервиса** и **SSH-ключ**. CLI помнит только последнюю установку в `config.env`.
+
+```bash
+# Первый туннель уже на 127.0.0.1:1080 (socksctl-tunnel)
+
+# Добавить второй → другой VPS на порту 1081
+SOCKSCTL_FORCE_INSTALL=1 sudo socksctl install \
+  --host 203.0.113.50 \
+  --listen-port 1081 \
+  --service-name socksctl-tunnel-2 \
+  --key-path /root/.ssh/socksctl_key_2 \
+  --yes
+```
+
+`SOCKSCTL_FORCE_INSTALL=1` пропускает меню «уже настроен».
+
+При установке **предыдущий** сервис из `config.env` останавливается. Файл старого unit остаётся — поднимите оба, если нужны параллельно:
+
+```bash
+sudo systemctl enable --now socksctl-tunnel      # первый туннель
+sudo systemctl enable --now socksctl-tunnel-2    # второй туннель
+```
+
+Проверка и использование второго:
+
+```bash
+sudo systemctl status socksctl-tunnel-2
+curl --socks5-hostname 127.0.0.1:1081 https://ifconfig.me
+```
+
+`socksctl status` показывает только **последний** туннель. Остальные — через `systemctl`.
 
 ### Примеры для приложений
 
