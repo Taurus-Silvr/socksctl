@@ -1,5 +1,5 @@
-#!/usr/bin/env sh
-# One-liner: один архив с github.com (без raw.githubusercontent.com)
+#!/bin/sh
+# One-liner: один архив с github.com (POSIX sh — работает через: curl ... | sh)
 set -e
 
 SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
@@ -20,7 +20,7 @@ if ! curl -fsSL \
     exit 1
 fi
 
-if [[ ! -f "${SOCKSCTL_TMPDIR}/install.sh" || ! -f "${SOCKSCTL_TMPDIR}/socksctl" ]]; then
+if [ ! -f "${SOCKSCTL_TMPDIR}/install.sh" ] || [ ! -f "${SOCKSCTL_TMPDIR}/socksctl" ]; then
     echo "Ошибка: архив повреждён или неполный" >&2
     rm -rf "$SOCKSCTL_TMPDIR"
     exit 1
@@ -28,7 +28,9 @@ fi
 
 sed -i 's/\r$//' "${SOCKSCTL_TMPDIR}/install.sh" "${SOCKSCTL_TMPDIR}/socksctl" 2>/dev/null || true
 for f in "${SOCKSCTL_TMPDIR}"/lib/*.sh; do
-    [[ -f "$f" ]] && sed -i 's/\r$//' "$f" 2>/dev/null || true
+    if [ -f "$f" ]; then
+        sed -i 's/\r$//' "$f" 2>/dev/null || true
+    fi
 done
 
 echo "==> Запускаю установку..." >&2
