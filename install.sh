@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOCKSCTL_INSTALLER_REV="2026-06-17c"
+SOCKSCTL_INSTALLER_REV="2026-06-17d"
 SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
 SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
 INSTALL_BIN="/usr/local/bin/socksctl"
