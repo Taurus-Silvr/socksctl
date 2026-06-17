@@ -1,7 +1,29 @@
 #!/usr/bin/env bash
+
+# curl | bash: stdin занят скриптом → re-exec из файла, чтобы работали read/prompt
+SOCKSCTL_INSTALL_URL="${SOCKSCTL_INSTALL_URL:-https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh}"
+
+if [[ "${SOCKSCTL_FROM_FILE:-}" != "1" ]]; then
+    _src="${BASH_SOURCE[0]:-}"
+    if [[ "$_src" == "bash" || "$_src" == "/bin/bash" || "$_src" == "/usr/bin/bash" || "$_src" == "-" ]] \
+        || [[ -z "$_src" ]] || [[ ! -f "$_src" ]]; then
+        _tmp="$(mktemp /tmp/socksctl-bootstrap.XXXXXX.sh)"
+        echo "==> Загружаю установщик..." >&2
+        if ! curl -fsSL --connect-timeout 15 --max-time 120 "$SOCKSCTL_INSTALL_URL" -o "$_tmp"; then
+            echo "Ошибка: не удалось скачать ${SOCKSCTL_INSTALL_URL}" >&2
+            rm -f "$_tmp"
+            exit 1
+        fi
+        sed -i 's/\r$//' "$_tmp"
+        chmod +x "$_tmp"
+        export SOCKSCTL_FROM_FILE=1
+        exec bash "$_tmp" "$@"
+    fi
+fi
+
 set -euo pipefail
 
-SOCKSCTL_INSTALLER_REV="2026-06-17d"
+SOCKSCTL_INSTALLER_REV="2026-06-17e"
 SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
 SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
 INSTALL_BIN="/usr/local/bin/socksctl"

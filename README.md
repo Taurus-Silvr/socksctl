@@ -9,6 +9,8 @@ Persistent SSH SOCKS5 tunnel in one command.
 curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh | sudo bash
 ```
 
+Скрипт сам перезапустится из `/tmp/` — stdin освобождается для ввода IP и пароля.
+
 Если «зависло» без вывода — GitHub может быть недоступен. Проверьте:
 
 ```bash
