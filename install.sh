@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SOCKSCTL_INSTALLER_REV="2026-06-17c"
 SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
 SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
 INSTALL_BIN="/usr/local/bin/socksctl"
@@ -14,28 +15,12 @@ log() {
     echo "$@" >&2
 }
 
-cleanup() {
-    if [[ -n "$SOCKSCTL_TMPDIR" && -d "$SOCKSCTL_TMPDIR" ]]; then
-        rm -rf "$SOCKSCTL_TMPDIR"
-    fi
-}
-
 strip_crlf() {
     local target="$1"
     [[ -f "$target" ]] || return 0
     if grep -q $'\r' "$target" 2>/dev/null; then
         sed -i 's/\r$//' "$target"
     fi
-}
-
-curl_download() {
-    local url="$1"
-    local out="$2"
-    log "     → $url"
-    if ! curl -fsSL "${CURL_OPTS[@]}" "$url" -o "$out"; then
-        return 1
-    fi
-    return 0
 }
 
 is_local_install() {
@@ -49,34 +34,42 @@ is_local_install() {
     [[ -f "${dir}/socksctl" && -d "${dir}/lib" ]]
 }
 
-download_via_tarball() {
-    local tmp="$1"
-    local tarball_url="https://github.com/${SOCKSCTL_REPO}/archive/refs/heads/${SOCKSCTL_BRANCH}.tar.gz"
+verify_source_tree() {
+    local dir="$1"
 
-    log "==> Способ 1: архив с github.com ..."
-    if curl -fsSL "${CURL_OPTS[@]}" "$tarball_url" | tar xz -C "$tmp" --strip-components=1 2>/dev/null; then
-        [[ -f "$tmp/socksctl" && -d "$tmp/lib" ]]
-        return $?
+    if [[ -f "${dir}/socksctl" && -d "${dir}/lib" ]]; then
+        return 0
     fi
+
+    log "Ошибка: после загрузки нет socksctl или lib/ в ${dir}"
+    log "Содержимое каталога:"
+    ls -la "$dir" >&2 || true
+    [[ -d "${dir}/lib" ]] && ls -la "${dir}/lib" >&2 || true
     return 1
 }
 
-download_via_raw() {
+download_file() {
+    local url="$1"
+    local out="$2"
+    curl -fsSL "${CURL_OPTS[@]}" "$url" -o "$out"
+}
+
+download_from_github() {
     local tmp="$1"
     local lib
 
-    log "==> Способ 2: файлы с raw.githubusercontent.com ..."
-    mkdir -p "$tmp/lib"
+    mkdir -p "${tmp}/lib"
 
-    curl_download "${RAW_BASE}/socksctl" "$tmp/socksctl" || return 1
-    curl_download "${RAW_BASE}/install.sh" "$tmp/install.sh" || true
+    log "     socksctl"
+    download_file "${RAW_BASE}/socksctl" "${tmp}/socksctl"
 
     for lib in ui os config deps ssh systemd check; do
-        curl_download "${RAW_BASE}/lib/${lib}.sh" "$tmp/lib/${lib}.sh" || return 1
+        log "     lib/${lib}.sh"
+        download_file "${RAW_BASE}/lib/${lib}.sh" "${tmp}/lib/${lib}.sh"
     done
 
-    chmod +x "$tmp/socksctl"
-    return 0
+    chmod +x "${tmp}/socksctl"
+    verify_source_tree "$tmp"
 }
 
 resolve_source_dir() {
@@ -92,45 +85,30 @@ resolve_source_dir() {
         return 0
     fi
 
-    local tmp
-    tmp="$(mktemp -d /tmp/socksctl-install.XXXXXX)"
-    SOCKSCTL_TMPDIR="$tmp"
-    trap cleanup EXIT
-
-    log "==> Скачиваю socksctl (${SOCKSCTL_REPO}@${SOCKSCTL_BRANCH})..."
-
     if ! command -v curl >/dev/null 2>&1; then
-        log "Ошибка: нужен curl."
-        log "  apt install -y curl"
+        log "Ошибка: нужен curl (apt install -y curl)"
         exit 1
     fi
 
-    if download_via_tarball "$tmp" || download_via_raw "$tmp"; then
-        SCRIPT_DIR="$tmp"
-        log "==> Исходники скачаны: ${SCRIPT_DIR}"
-        return 0
+    SOCKSCTL_TMPDIR="$(mktemp -d /tmp/socksctl-install.XXXXXX)"
+    log "==> Скачиваю файлы в ${SOCKSCTL_TMPDIR} ..."
+
+    if ! download_from_github "$SOCKSCTL_TMPDIR"; then
+        log ""
+        log "Не удалось скачать socksctl с GitHub."
+        log "Попробуйте: git clone https://github.com/${SOCKSCTL_REPO}.git && cd socksctl && sudo bash install.sh"
+        rm -rf "$SOCKSCTL_TMPDIR"
+        exit 1
     fi
 
-    log ""
-    log "Ошибка: не удалось скачать socksctl с GitHub."
-    log ""
-    log "Возможные причины:"
-    log "  - GitHub недоступен или заблокирован в вашей сети"
-    log "  - нет интернета / DNS"
-    log ""
-    log "Проверка:"
-    log "  curl -I --connect-timeout 10 https://raw.githubusercontent.com/${SOCKSCTL_REPO}/${SOCKSCTL_BRANCH}/install.sh"
-    log ""
-    log "Альтернатива — git clone:"
-    log "  git clone https://github.com/${SOCKSCTL_REPO}.git && cd socksctl && sudo bash install.sh"
-    log ""
-    log "Или залейте папку socksctl через SFTP и запустите: sudo bash install.sh"
-    exit 1
+    SCRIPT_DIR="$SOCKSCTL_TMPDIR"
+    log "==> Файлы на месте."
 }
 
 install_files() {
+    verify_source_tree "$SCRIPT_DIR"
+
     strip_crlf "${SCRIPT_DIR}/socksctl"
-    [[ -f "${SCRIPT_DIR}/install.sh" ]] && strip_crlf "${SCRIPT_DIR}/install.sh"
     for libfile in "${SCRIPT_DIR}"/lib/*.sh; do
         [[ -f "$libfile" ]] && strip_crlf "$libfile"
     done
@@ -146,7 +124,7 @@ install_files() {
     strip_crlf "$INSTALL_BIN"
 }
 
-log "==> socksctl installer"
+log "==> socksctl installer ${SOCKSCTL_INSTALLER_REV}"
 log ""
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
@@ -155,16 +133,14 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     exit 1
 fi
 
-resolve_source_dir
+resolve_source_di
 
-log "==> Устанавливаю socksctl в ${INSTALL_BIN} ..."
+log "==> Устанавливаю в ${INSTALL_BIN} ..."
 install_files
 
-# Удаляем временную директорию только после успешной установки файлов
-if [[ -n "$SOCKSCTL_TMPDIR" ]]; then
+if [[ -n "$SOCKSCTL_TMPDIR" && -d "$SOCKSCTL_TMPDIR" ]]; then
     rm -rf "$SOCKSCTL_TMPDIR"
     SOCKSCTL_TMPDIR=""
-    trap - EXIT
 fi
 
 log "==> socksctl установлен."
