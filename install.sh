@@ -54,7 +54,7 @@ download_via_tarball() {
     local tarball_url="https://github.com/${SOCKSCTL_REPO}/archive/refs/heads/${SOCKSCTL_BRANCH}.tar.gz"
 
     log "==> Способ 1: архив с github.com ..."
-    if curl -fSL "${CURL_OPTS[@]}" "$tarball_url" | tar xz -C "$tmp" --strip-components=1 2>/dev/null; then
+    if curl -fsSL "${CURL_OPTS[@]}" "$tarball_url" | tar xz -C "$tmp" --strip-components=1 2>/dev/null; then
         [[ -f "$tmp/socksctl" && -d "$tmp/lib" ]]
         return $?
     fi
@@ -83,12 +83,12 @@ resolve_source_dir() {
     local src="${BASH_SOURCE[0]:-}"
 
     if is_local_install "$src"; then
-        cd "$(dirname "$src")" && pwd
+        SCRIPT_DIR="$(cd "$(dirname "$src")" && pwd)"
         return 0
     fi
 
     if [[ -n "${SOCKSCTL_SOURCE_DIR:-}" && -d "$SOCKSCTL_SOURCE_DIR" ]]; then
-        cd "$SOCKSCTL_SOURCE_DIR" && pwd
+        SCRIPT_DIR="$(cd "$SOCKSCTL_SOURCE_DIR" && pwd)"
         return 0
     fi
 
@@ -106,8 +106,8 @@ resolve_source_dir() {
     fi
 
     if download_via_tarball "$tmp" || download_via_raw "$tmp"; then
-        log "==> Исходники скачаны."
-        echo "$tmp"
+        SCRIPT_DIR="$tmp"
+        log "==> Исходники скачаны: ${SCRIPT_DIR}"
         return 0
     fi
 
@@ -155,10 +155,17 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     exit 1
 fi
 
-SCRIPT_DIR="$(resolve_source_dir)"
+resolve_source_dir
 
 log "==> Устанавливаю socksctl в ${INSTALL_BIN} ..."
 install_files
+
+# Удаляем временную директорию только после успешной установки файлов
+if [[ -n "$SOCKSCTL_TMPDIR" ]]; then
+    rm -rf "$SOCKSCTL_TMPDIR"
+    SOCKSCTL_TMPDIR=""
+    trap - EXIT
+fi
 
 log "==> socksctl установлен."
 log "==> Запускаю мастер установки ..."
