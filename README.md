@@ -9,6 +9,20 @@ Persistent SSH SOCKS5 tunnel in one command.
 curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh | sudo bash
 ```
 
+Если «зависло» без вывода — GitHub может быть недоступен. Проверьте:
+
+```bash
+curl -I --connect-timeout 10 https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh
+```
+
+**Альтернатива (если curl к GitHub не идёт):**
+
+```bash
+git clone https://github.com/Taurus-Silvr/socksctl.git
+cd socksctl
+sudo bash install.sh
+```
+
 Введите **IP внешнего VPS** и **пароль root** (один раз).  
 На выходе: `socks5h://127.0.0.1:1080`
 
