@@ -23,7 +23,7 @@ fi
 
 set -euo pipefail
 
-SOCKSCTL_INSTALLER_REV="2026-06-17e"
+SOCKSCTL_INSTALLER_REV="2026-06-17f"
 SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
 SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
 INSTALL_BIN="/usr/local/bin/socksctl"
@@ -150,8 +150,13 @@ log "==> socksctl installer ${SOCKSCTL_INSTALLER_REV}"
 log ""
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    log "Запустите от root:"
-    log "  curl -fsSL ${RAW_BASE}/install.sh | sudo bash"
+    log "Запустите от root одной из команд:"
+    log ""
+    log "  sudo sh -c 'curl -fsSL ${RAW_BASE}/get.sh | sh'"
+    log ""
+    log "  curl -fsSL ${RAW_BASE}/install.sh -o /tmp/socksctl-install.sh && sudo bash /tmp/socksctl-install.sh"
+    log ""
+    log "Не используйте: curl ... | sudo bash  (sudo ломает pipe)"
     exit 1
 fi
 

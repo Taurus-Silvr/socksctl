@@ -5,11 +5,27 @@ Persistent SSH SOCKS5 tunnel in one command.
 
 ## Быстрая установка
 
+**Одна команда (работает):**
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/get.sh | sh
 ```
 
-Скрипт сам перезапустится из `/tmp/` — stdin освобождается для ввода IP и пароля.
+Если вы уже root (как `root@testproxy`) — **без sudo**.
+
+Если нужен sudo:
+
+```bash
+sudo sh -c 'curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/get.sh | sh'
+```
+
+**Альтернатива:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh -o /tmp/socksctl-install.sh && bash /tmp/socksctl-install.sh
+```
+
+> **Не работает:** `curl ... | sudo bash` — sudo перехватывает stdin из pipe, установка «зависает» без вывода.
 
 Если «зависло» без вывода — GitHub может быть недоступен. Проверьте:
 
@@ -46,7 +62,7 @@ curl --socks5-hostname 127.0.0.1:1080 https://ifconfig.me
 curl --socks5-hostname 127.0.0.1:1080 https://api.telegram.org
 
 sudo socksctl status
-sudo socksctl doctor
+sudo socksctl docto
 ```
 
 ## Команды
