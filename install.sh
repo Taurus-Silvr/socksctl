@@ -1,37 +1,41 @@
 #!/usr/bin/env bash
 
-# curl | bash: stdin занят скриптом → re-exec из файла, чтобы работали read/prompt
-SOCKSCTL_INSTALL_URL="${SOCKSCTL_INSTALL_URL:-https://raw.githubusercontent.com/Taurus-Silvr/socksctl/main/install.sh}"
+# curl | bash → скачать архив и re-exec (stdin освобождается для ввода)
+SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
+SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
+TARBALL_URL="https://github.com/${SOCKSCTL_REPO}/archive/refs/heads/${SOCKSCTL_BRANCH}.tar.gz"
+CURL_OPTS=(--connect-timeout 30 --max-time 300 --retry 5 --retry-delay 3)
 
 if [[ "${SOCKSCTL_FROM_FILE:-}" != "1" ]]; then
     _src="${BASH_SOURCE[0]:-}"
     if [[ "$_src" == "bash" || "$_src" == "/bin/bash" || "$_src" == "/usr/bin/bash" || "$_src" == "-" ]] \
         || [[ -z "$_src" ]] || [[ ! -f "$_src" ]]; then
-        _tmp="$(mktemp /tmp/socksctl-bootstrap.XXXXXX.sh)"
-        echo "==> Загружаю установщик..." >&2
-        if ! curl -fsSL --connect-timeout 15 --max-time 120 "$SOCKSCTL_INSTALL_URL" -o "$_tmp"; then
-            echo "Ошибка: не удалось скачать ${SOCKSCTL_INSTALL_URL}" >&2
-            rm -f "$_tmp"
+        _tmp="$(mktemp -d /tmp/socksctl-bootstrap.XXXXXX)"
+        echo "==> Скачиваю socksctl (архив)..." >&2
+        if ! curl -fsSL "${CURL_OPTS[@]}" "$TARBALL_URL" | tar xz -C "$_tmp" --strip-components=1; then
+            echo "Ошибка: не удалось скачать ${TARBALL_URL}" >&2
+            rm -rf "$_tmp"
             exit 1
         fi
-        sed -i 's/\r$//' "$_tmp"
-        chmod +x "$_tmp"
+        if [[ ! -f "${_tmp}/install.sh" ]]; then
+            echo "Ошибка: в архиве нет install.sh" >&2
+            rm -rf "$_tmp"
+            exit 1
+        fi
+        sed -i 's/\r$//' "${_tmp}/install.sh" "${_tmp}/socksctl" 2>/dev/null || true
         export SOCKSCTL_FROM_FILE=1
-        exec bash "$_tmp" "$@"
+        exec bash "${_tmp}/install.sh" "$@"
     fi
 fi
 
 set -euo pipefail
 
-SOCKSCTL_INSTALLER_REV="2026-06-17f"
-SOCKSCTL_REPO="${SOCKSCTL_REPO:-Taurus-Silvr/socksctl}"
-SOCKSCTL_BRANCH="${SOCKSCTL_BRANCH:-main}"
+SOCKSCTL_INSTALLER_REV="2026-06-17g"
 INSTALL_BIN="/usr/local/bin/socksctl"
 INSTALL_LIB="/usr/local/lib/socksctl"
 SCRIPT_DIR=""
 SOCKSCTL_TMPDIR=""
 RAW_BASE="https://raw.githubusercontent.com/${SOCKSCTL_REPO}/${SOCKSCTL_BRANCH}"
-CURL_OPTS=(--connect-timeout 15 --max-time 180 --retry 2 --retry-delay 2)
 
 log() {
     echo "$@" >&2
@@ -58,39 +62,32 @@ is_local_install() {
 
 verify_source_tree() {
     local dir="$1"
-
-    if [[ -f "${dir}/socksctl" && -d "${dir}/lib" ]]; then
-        return 0
-    fi
-
-    log "Ошибка: после загрузки нет socksctl или lib/ в ${dir}"
-    log "Содержимое каталога:"
-    ls -la "$dir" >&2 || true
-    [[ -d "${dir}/lib" ]] && ls -la "${dir}/lib" >&2 || true
-    return 1
-}
-
-download_file() {
-    local url="$1"
-    local out="$2"
-    curl -fsSL "${CURL_OPTS[@]}" "$url" -o "$out"
-}
-
-download_from_github() {
-    local tmp="$1"
     local lib
 
-    mkdir -p "${tmp}/lib"
-
-    log "     socksctl"
-    download_file "${RAW_BASE}/socksctl" "${tmp}/socksctl"
+    if [[ ! -f "${dir}/socksctl" || ! -d "${dir}/lib" ]]; then
+        log "Ошибка: нет socksctl или lib/ в ${dir}"
+        ls -la "$dir" >&2 || true
+        return 1
+    fi
 
     for lib in ui os config deps ssh systemd check; do
-        log "     lib/${lib}.sh"
-        download_file "${RAW_BASE}/lib/${lib}.sh" "${tmp}/lib/${lib}.sh"
+        if [[ ! -f "${dir}/lib/${lib}.sh" ]]; then
+            log "Ошибка: нет lib/${lib}.sh"
+            return 1
+        fi
     done
 
-    chmod +x "${tmp}/socksctl"
+    return 0
+}
+
+download_from_tarball() {
+    local tmp="$1"
+
+    log "==> Скачиваю архив с github.com ..."
+    if ! curl -fsSL "${CURL_OPTS[@]}" "$TARBALL_URL" | tar xz -C "$tmp" --strip-components=1; then
+        return 1
+    fi
+
     verify_source_tree "$tmp"
 }
 
@@ -99,6 +96,7 @@ fetch_install_source() {
 
     if is_local_install "$src"; then
         SCRIPT_DIR="$(cd "$(dirname "$src")" && pwd)"
+        log "==> Локальные файлы: ${SCRIPT_DIR}"
         return 0
     fi
 
@@ -113,12 +111,14 @@ fetch_install_source() {
     fi
 
     SOCKSCTL_TMPDIR="$(mktemp -d /tmp/socksctl-install.XXXXXX)"
-    log "==> Скачиваю файлы в ${SOCKSCTL_TMPDIR} ..."
+    log "==> Скачиваю в ${SOCKSCTL_TMPDIR} ..."
 
-    if ! download_from_github "$SOCKSCTL_TMPDIR"; then
+    if ! download_from_tarball "$SOCKSCTL_TMPDIR"; then
         log ""
-        log "Не удалось скачать socksctl с GitHub."
-        log "Попробуйте: git clone https://github.com/${SOCKSCTL_REPO}.git && cd socksctl && sudo bash install.sh"
+        log "Не удалось скачать архив с GitHub."
+        log "Попробуйте:"
+        log "  curl -fsSL ${RAW_BASE}/get.sh | sh"
+        log "  git clone https://github.com/${SOCKSCTL_REPO}.git && cd socksctl && bash install.sh"
         rm -rf "$SOCKSCTL_TMPDIR"
         exit 1
     fi
@@ -150,13 +150,9 @@ log "==> socksctl installer ${SOCKSCTL_INSTALLER_REV}"
 log ""
 
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-    log "Запустите от root одной из команд:"
-    log ""
+    log "Запустите от root:"
+    log "  curl -fsSL ${RAW_BASE}/get.sh | sh"
     log "  sudo sh -c 'curl -fsSL ${RAW_BASE}/get.sh | sh'"
-    log ""
-    log "  curl -fsSL ${RAW_BASE}/install.sh -o /tmp/socksctl-install.sh && sudo bash /tmp/socksctl-install.sh"
-    log ""
-    log "Не используйте: curl ... | sudo bash  (sudo ломает pipe)"
     exit 1
 fi
 
