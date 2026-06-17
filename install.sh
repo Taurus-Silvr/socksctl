@@ -94,7 +94,7 @@ download_from_github() {
     verify_source_tree "$tmp"
 }
 
-resolve_source_dir() {
+fetch_install_source() {
     local src="${BASH_SOURCE[0]:-}"
 
     if is_local_install "$src"; then
@@ -155,7 +155,7 @@ if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
     exit 1
 fi
 
-resolve_source_di
+fetch_install_source
 
 log "==> Устанавливаю в ${INSTALL_BIN} ..."
 install_files
